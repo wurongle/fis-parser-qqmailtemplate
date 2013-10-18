@@ -7,107 +7,85 @@
 var fs = require("fs"),
     path = require("path");
 
-global.gTemplateTree = null;
 
 module.exports = function(fisContent, fisFile, fisConf){
-
-	var util = {
-		tplVarPrex:'$_t',
-		tplL:'{%',
-		tplR:'%}',
-		fileList:[],
-		fileType:['.html','.php'],
-		valueMap:{
-			'css_path':'/htdocs/zh_CN/htmledition/style/',
-			'images_path':'/htdocs/zh_CN/htmledition/images/',
-			'js_path':'/htdocs/zh_CN/htmledition/js/'
-		},
+	var Conf = {
+		templateExtnames:['.html'],
+		noTemplateFolder:['htdocs','images','style','css','.svn'],
+		leftDelimiter:"{%",
+		rightDelimiter:"%}",
+		'css_path':'/htdocs/zh_CN/htmledition/style/',
+	    'images_path':'/htdocs/zh_CN/htmledition/images/',
+	    'js_path':'/htdocs/zh_CN/htmledition/js/'
+	};
+	var Util = {
+		/**
+		 * 获取文件列表
+		 * @param  {string} p
+		 * @return {array}
+		 */
 		getFileList: function (p) {
-			var me = this;
-			var files = fs.readdirSync(p);
-			var list = files.map(function (file) {
-					return path.join(p, file);
-				}).filter(function (file) {
-					if(fs.statSync(file).isDirectory()){
-						me.getFileList(file);
-					}
-					return fs.statSync(file).isFile();
-				});
-
-			/*list.forEach(function (file) {
-		        console.log("===%s (%s)", file, path.extname(file));
-		    });*/
-
-			me.fileList = me.fileList.concat(list);
-		},
-		getTemplateFileList: function (p,fileType) {
 			var me = this,
-				type,
-				list;
+				fileList = [],
+				_getFileList = function (p) {
+					var files = fs.readdirSync(p);
+					var list = files.map(function (file) {
+							return path.join(p, file);
+						}).filter(function (file) {
+							if(fs.statSync(file).isDirectory()){
+								// 检测无需遍历白名单
+								if(Conf.noTemplateFolder.indexOf(path.basename(file)) == -1){
+									_getFileList(file);
+								}else{
+									return [];
+								}
+							}
+							return fs.statSync(file).isFile();
+						});
+					fileList = fileList.concat(list);
+					return fileList;
+				};
 
-			me.getFileList(p);
-			if(!fileType){
-				fileType = me.fileType;
-			}
-			list = me.fileList.filter(function (file) {
-				type = path.extname(file);
-				return (fileType.indexOf(type) > -1);
-			});
-			return list;
+			return _getFileList(p);
 		},
+		/**
+		 * 生成模版树
+		 * @param  {string} content
+		 * @return {object}
+		 */
+		createTemplateTree: function (p) {
+			var me = this,
+				fileList = me.getFileList(p),
+				templateTree = {};
+
+			fileList = fileList.filter(function (file) {
+				var currentFileExtname = path.extname(file),
+					templateExtnames = Conf.templateExtnames;
+
+				return (templateExtnames.indexOf(currentFileExtname) > -1);
+			});
+
+			fileList.forEach(function (file) {
+				var content = fis.util.read(file);
+				var realpath = fis.util.realpath(file);
+				templateTree[realpath] = {};
+				me.parseSection(content,function (match,$1,$2,$3,index,_content) {
+					templateTree[realpath][$1] = $2;
+				});
+			});
+			return templateTree;
+		},
+		/**
+		 * 解析模版片段
+		 * @param  {string}   content
+		 * @param  {Function} callback
+		 * @return {none}
+		 */
 		parseSection: function (content,callback) {
 			//<%#tMobile_head%>00<%#/tMobile_head%>
 			content.replace(/<%#([a-zA-Z_]+)%>([\s\S]*?)(<%#\/\1%>)/g,function (match,$1,$2,$3,index,_content) {
 				callback(match,$1,$2,$3,index,_content);
 			});
-		},
-		createTemplateTree: function (p) {
-			var me = this,
-				fileList = me.getTemplateFileList(p);
-
-			gTemplateTree = {};
-			fileList.forEach(function (file) {
-
-				var content = fis.util.read(file);
-				var realpath = fis.util.realpath(file);
-				gTemplateTree[realpath] = {};
-				me.parseSection(content,function (match,$1,$2,$3,index,_content) {
-					gTemplateTree[realpath][$1] = $2;
-				});
-			});
-			console.log(fileList.length);
-		},
-		handleIncluedFile: function (content) {
-			content = content.replace(/<%#include\((#?[a-zA-Z0-9-_#]+)\)%>/g,function(match,$1,index,_content){
-				
-				if($1 && $1.charAt(0)==='#'){
-					$1 = fisFile.filename+$1;
-				}
-				$1 = '.' + fisFile.subdirname + '/' + $1;
-				var str = $1.split('#');
-				var realpath = fis.util.realpath(str[0]+'.html');
-				var section = str[1];
-				if(section){
-					var _section = '';
-					try{
-						_section = gTemplateTree[realpath][section];
-					}catch(ex){
-						console.log('include section error, no such section?! , realpath:',realpath);
-					}
-					return _section;
-				}else{
-					var _totalFile = '';
-					try{
-						_totalFile = fis.util.read(realpath);
-					}catch(ex){
-						console.log('include total file error, no such file?! , path:',str[0]+'.html');
-					}
-					return _totalFile;
-				}
-				
-			});
-			//console.log(content,fisFile);
-			return content;
 		},
 		removeSectionString: function (content) {
 			var me = this;
@@ -116,94 +94,114 @@ module.exports = function(fisContent, fisFile, fisConf){
 			});
 			return content;
 		},
-		encodeTemplate: function (content) {
-			content = content.replace(/charset=gb2312/,'charset=utf-8');
+		/**
+		 * 解析模版语句
+		 * @param  {string} content
+		 * @return {string}
+		 */
+		parseTemplateStatement: function (content,templateTree) {
+			var me = this;
+			content = content.replace(/<%#include\((#?[a-zA-Z0-9-_#]+)\)%>/g,function (match,$1) {
+				return me.parseIncludeFile($1,templateTree);
+			});
+			content = content.replace(/<%(.*?)%>/g,function (match,$1) {
+				var matchs;
+				/*if(matchs = /^#include\((#?[a-zA-Z0-9-_#]+)\)/.exec($1)){
+					return me.parseIncludeFile(matchs[1],templateTree);
+				}else */if(matchs = /^##(.*?)##/.exec($1)){
+					return me.wrapStatementWithnewTemplate('*'+matchs[1]+'*');
+				}else if(matchs = /^@(else if|if)[ ]?\((.*?)\)$/.exec($1)){
+					var sdm = matchs[2].replace(/=/g,'==').replace(/!/g,'!=').replace(/\|/g,'||').replace(/&/g,'&&');
+					sdm = me.parseFunction(sdm);
+					sdm = sdm.replace(/\$?[a-zA-Z0-9-_.]+\$?/g,function (match) {
+						return '"'+match+'"';
+					});
+					sdm = [matchs[1].replace(' ',''),' ',sdm].join('');
+					return me.wrapStatementWithnewTemplate(sdm);
+				}else if(matchs = /^@(endif|else)$/.exec($1)){
+					var str = matchs[1].replace('endif','/if');
+					return me.wrapStatementWithnewTemplate(str);
+				}else if(matchs = /^@(.*?)$/.exec($1)){
+					return me.wrapStatementWithnewTemplate(me.parseFunction(matchs[1]));
+				}else{
+					return match;
+				}
+
+			});
+			content = content.replace('=='+Conf.rightDelimiter,'==""'+Conf.rightDelimiter).replace('!='+Conf.rightDelimiter,'!=""'+Conf.rightDelimiter);
 			return content;
 		},
-		parseTemplateValue: function (content) {
+		/**
+		 * 解析模版函数
+		 * @param  {string} content
+		 * @param  {string} postfix
+		 * @return {string}
+		 */
+		parseFunction: function(content,postfix){
 			var me = this;
-			// <%@GetResFullName($images_path$weixin/card/btn_download.png)%>
-			// <%@GetResFullName($css_path$w_wap.css)%>
-			content = content.replace(/<%@GetResFullName\(\$([a-zA-Z0-9_]+)\$([a-zA-Z0-9-_./]+)\)%>/g,function(match,$1,$2){
-				//console.log(match);
-				return me.valueMap[$1] + $2;
+
+			content = content.replace(/GetVar\(([a-zA-Z0-9_]+)\)/g,function(match,$1){
+				return '$_t' + $1;
 			});
 
-			//<%@SetVar(QQName,$QQName.DATA$)%>
-			//<%@AppendVar(ExtendUrlParams,)%>
-			//<%@GetVar(muin)%>
-			//<%@if($s$=addfriend)%>xx<%@else%>xx<%@endif%>
-			/*content = content.replace(/<%.*?%>/g,function (match) {
-				return ' ';
-			});*/
-			//<%@SetVar(QQName,$QQName.DATA$)%>
-			//<%@if($s$=addfriend)%>xx<%@else%>xx<%@endif%>
-			content = content.replace(/<%(.*?)%>/g,function (match,$1) {
-				var comments,getVar,setVar,appendVar,_if;
-				if(comments = /^##(.*?)##/.exec($1)){
-					return [me.tplL,'*'+comments[1]+'*',me.tplR].join('');
-				}else if(getVar = /@GetVar\(([a-zA-Z0-9_]+)\)/.exec($1)){
-					return [me.tplL,me.tplVarPrex+getVar[1],me.tplR].join('');
-				}else if(setVar = /@SetVar\(([a-zA-Z0-9_]+)[ ]?,[ ]?(.*?)\)/.exec($1)){
-					return [me.tplL,me.tplVarPrex+setVar[1]+'="'+setVar[2]+'"',me.tplR].join('');
-				}else if(appendVar = /@AppendVar\(([a-zA-Z0-9_]+)[ ]?,[ ]?(.*?)\)/.exec($1)){
-					if(appendVar[2]){
-						return [me.tplL,me.tplVarPrex+appendVar[1]+'='+me.tplVarPrex+appendVar[1]+'+"'+appendVar[2]+'"',me.tplR].join('');
-					}else{
-						return [me.tplL,'*'+appendVar[0]+'*',me.tplR].join('');
-					}
-				}else if(_if = /@(else if|if)[ ]?\((.*?)\)$/.exec($1)){
+			content = content.replace(/SetVar\(([a-zA-Z0-9_]+)[ ]?,[ ]?(.*?)\)/g,function(match,$1,$2){
+				return '$_t'+$1+'="'+$2+'"';
+			});
 
-					var op = '',
-						ifif = _if[1].replace(' ','') + ' ',
-						sdm = _if[2].replace(/([a-zA-Z0-9_]+)\(([a-zA-Z0-9_.$]+)\)/g,function (match,$1,$2) {
-							if($1 == "GetVar"){
-								return me.tplVarPrex + $2;
-							}else{
-								return '"'+ $2 +'"|' + $1;
-							}
-						});
-						sdm = sdm.replace(/=/g,'==').replace(/!/g,'!=').replace(/\|/g,'||').replace(/&/g,'&&');
-						sdm = sdm.replace(/\$?[a-zA-Z0-9-_.]+\$?/g,function (match) {
-							return '"'+match+'"';
-						});
-						
-					return [me.tplL, ifif + sdm, me.tplR].join('');
-				}else if(/@endif$/.exec($1)){
-					return [me.tplL, '/if' , me.tplR].join('');
-				}else if(/@else$/.exec($1)){
-					return [me.tplL, 'else' , me.tplR].join('');
+			content = content.replace(/AppendVar\(([a-zA-Z0-9_]+)[ ]?,[ ]?(.*?)\)/g,function(match,$1,$2){
+				if($2){
+					return '$_t'+$1+'='+'$_t'+$1+'+"'+$2+'"';
 				}else{
-					return match;//[me.tplL, $1 , me.tplR].join('');
+					return '*'+match+'*';
 				}
 			});
-
-			content = content.replace(/\$([a-zA-Z0-9_.]+)\$/g,function (match,$1) {
-				return "$"+$1;
+			content = content.replace(/GetResFullName\(\$([a-zA-Z0-9_]+)\$([a-zA-Z0-9-_./]+)\)/g,function(match,$1,$2){
+				return '"'+ Conf[$1] + $2 + '"';
 			});
 
 			return content;
 		},
-		parseTemplate: function (content) {
-			var me = this;
-			var st = new Date().getTime();
+		parseIncludeFile: function (filePath,templateTree) {
+			if(filePath && filePath.charAt(0)==='#'){
+				filePath = fisFile.filename+filePath;
+			}
+			filePath = '.' + fisFile.subdirname + '/' + filePath;
+			var str = filePath.split('#');
+			var realpath = fis.util.realpath(str[0]+'.html');
+			var section = str[1];
+			if(section){
+				var _section = '';
+				try{
+					_section = templateTree[realpath][section];
+				}catch(ex){
+					console.log('include section error, no such section?! , realpath:',realpath);
+				}
+				return _section;
+			}else{
+				var _totalFile = '';
+				try{
+					_totalFile = fis.util.read(realpath);
+				}catch(ex){
+					console.log('include total file error, no such file?! , path:',str[0]+'.html');
+				}
+				return _totalFile;
+			}
+		},
+		parseTemplate: function (content){
+			var me = this,
+				templateTree = null;
+
+			if(!global.tplTree){ 
+				console.log('createTemplateTree.');
+				global.tplTree = me.createTemplateTree('./');
+			}
+			templateTree = global.tplTree;
 			content = me.removeSectionString(content);
-			content = me.handleIncluedFile(content);
-			content = me.parseTemplateValue(content);
-			content = me.encodeTemplate(content);
-			var et = new Date().getTime();
-			console.log('parseTemplate ok!',et-st,'ms');
-			return content;
+			return me.parseTemplateStatement(content,templateTree);
+		},
+		wrapStatementWithnewTemplate: function(content){
+			return [Conf.leftDelimiter,content,Conf.rightDelimiter].join('');
 		}
 	};
-
-	if(!gTemplateTree){
-		var st = new Date().getTime();
-		util.createTemplateTree('./');
-		var et = new Date().getTime();
-		console.log('createTemplateTree ok!',et-st,'ms');
-		//console.log(gTemplateTree);
-	}
-
-    return util.parseTemplate(fisContent);
+    return Util.parseTemplate(fisContent);
 };

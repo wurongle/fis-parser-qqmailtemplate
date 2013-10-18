@@ -1,0 +1,13 @@
+{
+  "name": "fis-parser-qqmailtemplate",
+  "description": "A parser plugin for qqmail template.",
+  "version": "0.0.1",
+  "author": {
+    "name": "Rock506",
+    "email": "wurongle@gmail.com"
+  },
+  "main": "index.js",
+  "engines": {
+    "node": ">= 0.8.0"
+  }
+}

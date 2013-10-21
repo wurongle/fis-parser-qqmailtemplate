@@ -33,7 +33,7 @@ function fis_debug_render_smarty($tpl = null, $data = array()) {
     $default_conf = array(
         'template_dir' => 'template',
         'config_dir' => 'config',
-        'plugins_dir' => array( 'plugin' ),
+        'plugins_dir' => array( 'plugins' ),
         'left_delimiter' => '{%',
         'right_delimiter' => '%}'
     );
@@ -64,6 +64,29 @@ function fis_debug_template_rewrite_rule($rewrite, $url, $root, $matches){
     }
 }
 
+function file_list($path)
+{
+    if ($handle = opendir($path))//打开路径成功
+    {
+        while (false !== ($file = readdir($handle)))//循环读取目录中的文件名并赋值给$file
+        {
+            if ($file != "." && $file != "..")//排除当前路径和前一路径
+            {
+                if (is_dir($path."/".$file))
+                {
+//                    echo $path.": ".$file."<br>";//去掉此行显示的是所有的非目录文件
+                    file_list($path."/".$file);
+                }
+                else
+                {
+                    $_path = str_replace("/template","",$path);
+                    echo "<a href='$_path/$file' target='_blank'>$file</a><br>";
+                }
+            }
+        }
+    }
+}
+
 Rewrite::addRewriteRule('template', 'fis_debug_template_rewrite_rule');
 if(!Rewrite::match($path)) {
 
@@ -71,7 +94,7 @@ if(!Rewrite::match($path)) {
         $path = substr($path, 0, $pos);
     }
     if('/' === $path){
-        echo 'index';
+        file_list('./template');
     } else {
         $len = strlen($path) - 1;
         if('/' === $path{$len}){

@@ -10,13 +10,11 @@ var fs = require("fs"),
 
 module.exports = function(fisContent, fisFile, fisConf){
 	var Conf = {
+		templateTreeRoot:'./',
 		templateExtnames:['.html'],
 		noTemplateFolder:['htdocs','images','style','css','.svn'],
 		leftDelimiter:"{%",
-		rightDelimiter:"%}",
-		'css_path':'/htdocs/zh_CN/htmledition/style/',
-	    'images_path':'/htdocs/zh_CN/htmledition/images/',
-	    'js_path':'/htdocs/zh_CN/htmledition/js/'
+		rightDelimiter:"%}"
 	};
 	var Util = {
 		/**
@@ -106,25 +104,24 @@ module.exports = function(fisContent, fisFile, fisConf){
 			});
 			content = content.replace(/<%(.*?)%>/g,function (match,$1) {
 				var matchs;
-				/*if(matchs = /^#include\((#?[a-zA-Z0-9-_#]+)\)/.exec($1)){
-					return me.parseIncludeFile(matchs[1],templateTree);
-				}else */if(matchs = /^##(.*?)##/.exec($1)){
+				if(matchs = /^##(.*?)##/.exec($1)){
 					return me.wrapStatementWithnewTemplate('*'+matchs[1]+'*');
-				}else if(matchs = /^@(else if|if)[ ]?\((.*?)\)$/.exec($1)){
+				}else if(matchs = /^@(else if|if|elseif)[ ]?\((.*?)\)$/.exec($1)){
 					var sdm = matchs[2].replace(/=/g,'==').replace(/!/g,'!=').replace(/\|/g,'||').replace(/&/g,'&&');
 					sdm = me.parseFunction(sdm);
-					sdm = sdm.replace(/\$?[a-zA-Z0-9-_.]+\$?/g,function (match) {
-						return '"'+match+'"';
+					sdm = sdm.replace(/(==|\|\||!=|&&)(.*)/g,function (match,$1,$2) {
+						return $1 + '"'+$2.replace(/"/g,"\\\"")+'"';
 					});
 					sdm = [matchs[1].replace(' ',''),' ',sdm].join('');
 					return me.wrapStatementWithnewTemplate(sdm);
-				}else if(matchs = /^@(endif|else)$/.exec($1)){
-					var str = matchs[1].replace('endif','/if');
+				}else if(matchs = /^@(endif\)?|else)$/.exec($1)){
+					var str = matchs[1].replace(/endif\)?/,'/if');
 					return me.wrapStatementWithnewTemplate(str);
 				}else if(matchs = /^@(.*?)$/.exec($1)){
 					return me.wrapStatementWithnewTemplate(me.parseFunction(matchs[1]));
 				}else{
-					return match;
+					//return match;
+					return me.wrapStatementWithnewTemplate('*'+match[1]+'*');
 				}
 
 			});
@@ -137,29 +134,36 @@ module.exports = function(fisContent, fisFile, fisConf){
 		 * @param  {string} postfix
 		 * @return {string}
 		 */
-		parseFunction: function(content,postfix){
+		parseFunction: function(content,next){
 			var me = this;
+			var hasFun = false;
 
-			content = content.replace(/GetVar\(([a-zA-Z0-9_]+)\)/g,function(match,$1){
-				return '$_t' + $1;
-			});
+			content = content.replace('GetCurrentDate()','GetCurrentDate(2013)');
+			
+			content = content.replace(/([a-zA-Z0-9]+)\(([^()]+)\)/g,function (match,$1,$2) {
+				var _args = $2.split(','),
+					_rest = '';
 
-			content = content.replace(/SetVar\(([a-zA-Z0-9_]+)[ ]?,[ ]?(.*?)\)/g,function(match,$1,$2){
-				return '$_t'+$1+'="'+$2+'"';
+				hasFun = true;
+				_args.forEach(function (item,index) {
+					if(index===0){
+						_rest = (next ? _args[0] : me.wrapString(_args[0])) + '|' + $1;
+					}else{
+						_rest += ':' + (/^##\[/.test(item) ? item : me.wrapString(item) );
+					}
+				});
+				return '##[' + _rest + ']##';
 			});
+			if(hasFun){
+				return me.parseFunction(content,true);
+			}else{
+				//setvar appendvar hack
+				content = content.replace(/(SetVar|AppendVar)\(([a-zA-Z0-9_]+),(.*)\)/,function (match,$1,$2,$3) {
+					return '"' + $2 + '"|' + $1 + ':"' + $3.replace(/"/g,'\\"') + '"';
+				});
 
-			content = content.replace(/AppendVar\(([a-zA-Z0-9_]+)[ ]?,[ ]?(.*?)\)/g,function(match,$1,$2){
-				if($2){
-					return '$_t'+$1+'='+'$_t'+$1+'+"'+$2+'"';
-				}else{
-					return '*'+match+'*';
-				}
-			});
-			content = content.replace(/GetResFullName\(\$([a-zA-Z0-9_]+)\$([a-zA-Z0-9-_./]+)\)/g,function(match,$1,$2){
-				return '"'+ Conf[$1] + $2 + '"';
-			});
-
-			return content;
+				return content.replace(/##\[/g,'(').replace(/\]##/g,')');
+			}
 		},
 		parseIncludeFile: function (filePath,templateTree) {
 			if(filePath && filePath.charAt(0)==='#'){
@@ -174,7 +178,7 @@ module.exports = function(fisContent, fisFile, fisConf){
 				try{
 					_section = templateTree[realpath][section];
 				}catch(ex){
-					console.log('include section error, no such section?! , realpath:',realpath);
+					console.log('include section error.',fisFile.name);
 				}
 				return _section;
 			}else{
@@ -182,25 +186,44 @@ module.exports = function(fisContent, fisFile, fisConf){
 				try{
 					_totalFile = fis.util.read(realpath);
 				}catch(ex){
-					console.log('include total file error, no such file?! , path:',str[0]+'.html');
+					console.log('include total file error.',str[0]+'.html');
 				}
 				return _totalFile;
 			}
 		},
+		parseValue: function (content) {
+			content = content.replace(/(".*?)\$([a-zA-Z0-9_.]+?)(.DATA)?\$(.*?")/g,function (math,$1,$2,$3,$4) {
+				return $1 + "`$" + $2 + "`" + $4;
+			});
+
+			content = content.replace(/\$([a-zA-Z0-9_.]+?)(.DATA)?\$/g,function (math,$1,$2) {
+				return "$" + $1;
+			});
+			return content;
+		},
 		parseTemplate: function (content){
+			var st = new Date().getTime();
 			var me = this,
 				templateTree = null;
-
+				
 			if(!global.tplTree){ 
 				console.log('createTemplateTree.');
-				global.tplTree = me.createTemplateTree('./');
+				global.tplTree = me.createTemplateTree(Conf.templateTreeRoot);
+				templateTree = global.tplTree;
 			}
-			templateTree = global.tplTree;
 			content = me.removeSectionString(content);
-			return me.parseTemplateStatement(content,templateTree);
+			content = me.parseTemplateStatement(content,templateTree);
+			content = me.parseValue(content);
+			content = content.replace(/(<meta[ ].*?charset=["]?)(gb2312|gbk)(["]?.*?>)/g,'$1utf-8$3');
+			var et = new Date().getTime();
+			console.log('parseTemplate cose ',et-st,' ms.');
+			return content;
 		},
 		wrapStatementWithnewTemplate: function(content){
 			return [Conf.leftDelimiter,content,Conf.rightDelimiter].join('');
+		},
+		wrapString: function (string) {
+			return '"'+string.replace(/"/g,'\\"')+'"';
 		}
 	};
     return Util.parseTemplate(fisContent);

@@ -25,6 +25,10 @@ abstract class FISData {
         return $id;
     }
 
+    public function getTestRootPath() {
+        return Util::normalizePath(WWW_ROOT.'/test/');
+    }
+
     public function getCookieId() {
         $cookie_id = $_COOKIE['FIS_DEBUG_DATA_ID'];
         if ($cookie_id) {

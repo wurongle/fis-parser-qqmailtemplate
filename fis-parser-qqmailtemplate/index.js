@@ -93,9 +93,7 @@ module.exports = function(fisContent, fisFile, fisConf){
 		 */
 		parseTemplateStatement: function (content,templateTree) {
 			var me = this;
-			content = content.replace(/<%#include\((#?[a-zA-Z0-9-_#]+)\)%>/g,function (match,$1) {
-				return me.parseIncludeFile($1,templateTree);
-			});
+			content = me.parseIncludeFile(content,templateTree);
 			content = content.replace(/<%(.*?)%>/g,function (match,$1) {
 				var matchs;
 				if(matchs = /^##(.*?)##/.exec($1)){
@@ -159,32 +157,41 @@ module.exports = function(fisContent, fisFile, fisConf){
 				return content.replace(/##\[/g,'(').replace(/\]##/g,')');
 			}
 		},
-		parseIncludeFile: function (filePath,templateTree) {
-			//console.log(filePath);
-			if(filePath && filePath.charAt(0)==='#'){
-				filePath = fisFile.filename+filePath;
-			}
-			filePath = '.' + fisFile.subdirname + '/' + filePath;
-			var str = filePath.split('#');
-			var realpath = fis.util.realpath(str[0]+'.html');
-			var section = str[1];
-			if(section){
-				var _section = '';
-				try{
-					_section = templateTree[realpath][section];
-				}catch(ex){
-					console.log('include section error.',fisFile.filename,realpath);
-				}
-				return _section;
+		parseIncludeFile: function (content,templateTree) {
+			var me = this;
+			if(/<%#include\((#?[a-zA-Z0-9-_#]+)\)%>/.test(content)){
+				content = content.replace(/<%#include\((#?[a-zA-Z0-9-_#]+)\)%>/g,function (match,filePath) {
+					if(filePath && filePath.charAt(0)==='#'){
+						filePath = fisFile.filename+filePath;
+					}
+					filePath = '.' + fisFile.subdirname + '/' + filePath;
+					var str = filePath.split('#');
+					var realpath = fis.util.realpath(str[0]+'.html');
+					var section = str[1];
+					if(section){
+						var _section = '';
+						try{
+							_section = templateTree[realpath][section];
+						}catch(ex){
+							console.log('include section error.',fisFile.filename,realpath);
+						}
+						return _section;
+					}else{
+						var _totalFile = '';
+						try{
+							_totalFile = fis.util.read(realpath);
+						}catch(ex){
+							console.log('include total file error.',str[0]+'.html');
+						}
+						return _totalFile;
+					}
+				});
+				return me.parseIncludeFile(content,templateTree);
 			}else{
-				var _totalFile = '';
-				try{
-					_totalFile = fis.util.read(realpath);
-				}catch(ex){
-					console.log('include total file error.',str[0]+'.html');
-				}
-				return _totalFile;
+				return content;
 			}
+			//console.log(filePath);
+
 		},
 		parseValue: function (content) {
 			content = content.replace(/{%(.*?)%}/g,function (match,$1) {
@@ -206,12 +213,20 @@ module.exports = function(fisContent, fisFile, fisConf){
 		parseTemplate: function (content){
 			var me = this;
 				
-			if(!global.tplTree){
-				var st = new Date().getTime();
-				global.tplTree = me.createTemplateTree(Conf.templateTreeRoot);
-				var et = new Date().getTime();
-				console.log('createTemplateTree ok,',et-st,' ms.');
-			}
+			//if(!global.tplTree){
+				clearTimeout(global.timer);
+				if(!global.hasCatch){
+					var st = new Date().getTime();
+					global.tplTree = me.createTemplateTree(Conf.templateTreeRoot);
+					global.hasCatch = true;
+					var et = new Date().getTime();
+					console.log('createTemplateTree ok,',et-st,' ms.');
+				}
+				global.timer = setTimeout(function (argument) {
+					global.hasCatch = false;
+					console.log('templateTree timeout.');
+				},200);
+			//}
 			content = me.removeSectionString(content);
 			content = me.parseTemplateStatement(content,global.tplTree);
 			content = me.parseValue(content);

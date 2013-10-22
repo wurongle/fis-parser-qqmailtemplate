@@ -9,13 +9,7 @@ var fs = require("fs"),
 
 
 module.exports = function(fisContent, fisFile, fisConf){
-	var Conf = {
-		templateTreeRoot:'./',
-		templateExtnames:['.html'],
-		noTemplateFolder:['htdocs','images','style','css','.svn'],
-		leftDelimiter:"{%",
-		rightDelimiter:"%}"
-	};
+	var Conf = fis.config.get('MMCONF');
 	var Util = {
 		/**
 		 * 获取文件列表
@@ -120,8 +114,8 @@ module.exports = function(fisContent, fisFile, fisConf){
 				}else if(matchs = /^@(.*?)$/.exec($1)){
 					return me.wrapStatementWithnewTemplate(me.parseFunction(matchs[1]));
 				}else{
-					//return match;
-					return me.wrapStatementWithnewTemplate('*'+match[1]+'*');
+					return match;
+					//return me.wrapStatementWithnewTemplate('*'+match[1]+'*');
 				}
 
 			});
@@ -166,6 +160,7 @@ module.exports = function(fisContent, fisFile, fisConf){
 			}
 		},
 		parseIncludeFile: function (filePath,templateTree) {
+			//console.log(filePath);
 			if(filePath && filePath.charAt(0)==='#'){
 				filePath = fisFile.filename+filePath;
 			}
@@ -178,7 +173,7 @@ module.exports = function(fisContent, fisFile, fisConf){
 				try{
 					_section = templateTree[realpath][section];
 				}catch(ex){
-					console.log('include section error.',fisFile.name);
+					console.log('include section error.',fisFile.filename,realpath);
 				}
 				return _section;
 			}else{
@@ -192,31 +187,37 @@ module.exports = function(fisContent, fisFile, fisConf){
 			}
 		},
 		parseValue: function (content) {
-			content = content.replace(/(".*?)\$([a-zA-Z0-9_.]+?)(.DATA)?\$(.*?")/g,function (math,$1,$2,$3,$4) {
-				return $1 + "`$" + $2 + "`" + $4;
+			content = content.replace(/{%(.*?)%}/g,function (match,$1) {
+				match = match.replace(/(".*?)\$([a-zA-Z0-9_.]+?)(.DATA)?\$(.*?")/g,function (_math,_$1,_$2,_$3,_$4) {
+					//console.log(_math);
+					return _$1 + "`$" + _$2 + "`" + _$4;
+				});
+				match = match.replace(/\$([a-zA-Z0-9_.]+?)(.DATA)?\$/g,function (_math,_$1,_$2) {
+					return "$" + _$1;
+				});
+				return match;
 			});
 
 			content = content.replace(/\$([a-zA-Z0-9_.]+?)(.DATA)?\$/g,function (math,$1,$2) {
-				return "$" + $1;
+				return Conf.leftDelimiter + "$" + $1 + Conf.rightDelimiter;
 			});
 			return content;
 		},
 		parseTemplate: function (content){
-			var st = new Date().getTime();
-			var me = this,
-				templateTree = null;
+			var me = this;
 				
-			if(!global.tplTree){ 
-				console.log('createTemplateTree.');
+			if(!global.tplTree){
+				var st = new Date().getTime();
 				global.tplTree = me.createTemplateTree(Conf.templateTreeRoot);
-				templateTree = global.tplTree;
+				var et = new Date().getTime();
+				console.log('createTemplateTree ok,',et-st,' ms.');
 			}
 			content = me.removeSectionString(content);
-			content = me.parseTemplateStatement(content,templateTree);
+			content = me.parseTemplateStatement(content,global.tplTree);
 			content = me.parseValue(content);
-			content = content.replace(/(<meta[ ].*?charset=["]?)(gb2312|gbk)(["]?.*?>)/g,'$1utf-8$3');
-			var et = new Date().getTime();
-			console.log('parseTemplate cose ',et-st,' ms.');
+			content = content.replace(/(<meta[ ].*?charset=["]?)(gb2312|gbk)(["]?.*?>)/ig,'$1utf-8$3');
+			
+			
 			return content;
 		},
 		wrapStatementWithnewTemplate: function(content){

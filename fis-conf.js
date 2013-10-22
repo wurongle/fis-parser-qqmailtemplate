@@ -13,4 +13,10 @@ fis.config.merge({
     }
 });
 
-fis.config.set('css_path','/htdocs/zh_CN/htmledition/style/');
+fis.config.set('MMCONF',{
+    templateTreeRoot:'./',
+    templateExtnames:['.html'],
+    noTemplateFolder:['htdocs','images','style','css','.svn'],
+    leftDelimiter:"{%",
+    rightDelimiter:"%}"
+});
